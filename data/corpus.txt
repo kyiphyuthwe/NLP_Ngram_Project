@@ -1,0 +1,30 @@
+I like natural language processing.
+I like machine learning.
+I like artificial intelligence.
+Natural language processing is interesting.
+Machine learning is useful.
+Artificial intelligence is powerful.
+I study computer science.
+I study natural language processing.
+I learn machine learning.
+I learn artificial intelligence.
+Computer science is interesting.
+Machine learning helps computer science.
+Natural language processing helps computers understand language.
+Artificial intelligence helps computers solve problems.
+I enjoy learning computer science.
+I enjoy learning machine learning.
+I enjoy natural language processing.
+Language processing is important.
+Machine learning is important.
+Artificial intelligence is important.
+Computers can learn from data.
+Computers can understand language.
+Computers can solve problems.
+Data helps machine learning.
+Data helps artificial intelligence.
+Learning is important for computer science.
+Natural language processing uses language data.
+Machine learning uses training data.
+Artificial intelligence uses machine learning.
+Computer science uses programming.
