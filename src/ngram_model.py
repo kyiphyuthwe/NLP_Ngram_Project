@@ -38,3 +38,17 @@ def calculate_conditional_probabilities(ngrams):
         probabilities[ngram] = count / context_counts[context]
 
     return probabilities
+
+def predict_next_word(context, conditional_probs):
+    """Predict the most likely next word from a given context."""
+
+    best_word = None
+    best_probability = 0
+
+    for ngram, probability in conditional_probs.items():
+        if ngram[:-1] == context:
+            if probability > best_probability:
+                best_probability = probability
+                best_word = ngram[-1]
+
+    return best_word, best_probability
