@@ -1,0 +1,5 @@
+cat likes milk
+cat likes fish
+dog likes bones
+dog likes food
+bird likes seeds and grass

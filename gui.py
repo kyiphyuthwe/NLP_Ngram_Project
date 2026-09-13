@@ -1,5 +1,9 @@
+import os
+import shutil
 import customtkinter as ctk
 from tkinter import filedialog
+
+from nltk.corpus import brown, gutenberg, reuters, webtext
 
 from src.preprocessing import preprocess_text
 from src.ngram_model import (
@@ -20,23 +24,173 @@ ctk.set_default_color_theme("blue")
 
 app = ctk.CTk()
 app.title("N-Gram Language Model")
-app.geometry("980x620")
+app.geometry("980x640")
 app.resizable(False, False)
 
 # ----------------------------
-# Load Initial Corpus
+# Corpus Folder
 # ----------------------------
-with open("data/corpus.txt", "r", encoding="utf-8") as file:
-    text = file.read()
+CORPUS_FOLDER = "corpora"
 
-corpus_tokens = preprocess_text(text)
-bigrams = generate_ngrams(corpus_tokens, 2)
-conditional_probs = calculate_conditional_probabilities(bigrams)
+if not os.path.exists(CORPUS_FOLDER):
+    os.makedirs(CORPUS_FOLDER)
+
+# ----------------------------
+# Global Model Variables
+# ----------------------------
+corpus_tokens = []
+conditional_probs = {}
+
+# ----------------------------
+# NLTK Corpus Names
+# ----------------------------
+NLTK_CORPORA = [
+    "Brown",
+    "Gutenberg",
+    "Reuters",
+    "Webtext"
+]
+
+# ----------------------------
+# Corpus Functions
+# ----------------------------
+def get_corpus_list():
+    custom_files = [
+        f for f in os.listdir(CORPUS_FOLDER)
+        if f.endswith(".txt")
+    ]
+
+    custom_files.sort()
+
+    return custom_files + NLTK_CORPORA
+
+
+def get_nltk_tokens(name):
+    """
+    Load tokens from an NLTK corpus while preserving
+    sentence boundaries.
+    """
+
+    if name == "Brown":
+        sentences = brown.sents()
+
+    elif name == "Gutenberg":
+        sentences = gutenberg.sents()
+
+    elif name == "Reuters":
+        sentences = reuters.sents()
+
+    elif name == "Webtext":
+        sentences = webtext.sents()
+
+    else:
+        return []
+
+    tokens = []
+
+    for sentence in sentences:
+        cleaned_sentence = []
+
+        for word in sentence:
+            word = word.lower()
+
+            # Keep alphabetic words only
+            if word.isalpha():
+                cleaned_sentence.append(word)
+
+        if cleaned_sentence:
+            tokens.append("<s>")
+            tokens.extend(cleaned_sentence)
+            tokens.append("</s>")
+
+    return tokens
+
+
+def load_corpus(name):
+    global corpus_tokens, conditional_probs
+
+    status.configure(
+        text="● Loading corpus...",
+        text_color="#F59E0B"
+    )
+
+    app.update_idletasks()
+
+    # ----------------------------
+    # Custom TXT Corpus
+    # ----------------------------
+    if name.endswith(".txt"):
+
+        path = os.path.join(CORPUS_FOLDER, name)
+
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+
+        corpus_tokens = preprocess_text(text)
+
+    # ----------------------------
+    # NLTK Corpus
+    # ----------------------------
+    else:
+
+        corpus_tokens = get_nltk_tokens(name)
+
+    # ----------------------------
+    # Build Bigram Model
+    # ----------------------------
+    bigrams = generate_ngrams(corpus_tokens, 2)
+
+    conditional_probs = calculate_conditional_probabilities(
+        bigrams
+    )
+
+    # ----------------------------
+    # Update Statistics
+    # ----------------------------
+    corpus_label.configure(
+        text=f"Corpus Size: {len(corpus_tokens)} tokens"
+    )
+
+    vocab_label.configure(
+        text=f"Vocabulary: {len(set(corpus_tokens))} words"
+    )
+
+    status.configure(
+        text="● Model Ready",
+        text_color="#16A34A"
+    )
+
+    result_box.configure(
+        text=f"Loaded corpus:\n{name}"
+    )
+
+
+def upload_corpus():
+    path = filedialog.askopenfilename(
+        title="Select Corpus",
+        filetypes=[("Text Files", "*.txt")]
+    )
+
+    if not path:
+        return
+
+    filename = os.path.basename(path)
+    destination = os.path.join(CORPUS_FOLDER, filename)
+
+    shutil.copy(path, destination)
+
+    corpus_menu.configure(
+        values=get_corpus_list()
+    )
+
+    corpus_menu.set(filename)
+
+    load_corpus(filename)
+
 
 # ----------------------------
 # Helper Functions
 # ----------------------------
-
 def get_input():
     text = input_box.get().strip()
 
@@ -49,74 +203,86 @@ def get_input():
     return text
 
 
-def upload_corpus():
-    global corpus_tokens, bigrams, conditional_probs
-
-    path = filedialog.askopenfilename(
-        title="Select Corpus",
-        filetypes=[("Text Files", "*.txt")]
-    )
-
-    if not path:
-        return
-
-    with open(path, "r", encoding="utf-8") as f:
-        new_text = f.read()
-
-    corpus_tokens = preprocess_text(new_text)
-    bigrams = generate_ngrams(corpus_tokens, 2)
-    conditional_probs = calculate_conditional_probabilities(bigrams)
-
-    corpus_label.configure(
-        text=f"Corpus Size: {len(corpus_tokens)} words"
-    )
-
-    result_box.configure(
-        text=f"New corpus loaded successfully!\n\nTotal Words: {len(corpus_tokens)}"
-    )
-
-
+# ----------------------------
+# Prediction
+# ----------------------------
 def predict():
-    word = get_input()
+    text = get_input()
 
-    if word is None:
+    if text is None:
         return
 
-    predicted, probability = predict_next_word(
-        (word.lower(),),
-        conditional_probs
-    )
+    # Preprocess user input
+    context_tokens = [
+        token
+        for token in preprocess_text(text)
+        if token not in ("<s>", "</s>")
+    ]
 
-    if predicted is None:
+    if len(context_tokens) == 0:
         result_box.configure(
-            text=f"Prediction\n\nInput: {word}\n\nNo prediction found."
+            text="Please enter valid text."
         )
         return
 
+    context = tuple(context_tokens)
+
+    # Context length + 1 = N-gram size
+    n = len(context) + 1
+
+    ngrams = generate_ngrams(
+        corpus_tokens,
+        n
+    )
+
+    probs = calculate_conditional_probabilities(
+        ngrams
+    )
+
+    predictions = predict_next_word(
+        context,
+        probs
+    )
+
+    if not predictions:
+        result_box.configure(
+            text=f"No prediction found for:\n\n{text}"
+        )
+        return
+
+    output = (
+        f"Input:\n{text}\n\n"
+        f"Top Predictions\n\n"
+    )
+
+    for i, (word, probability) in enumerate(
+        predictions[:3],
+        start=1
+    ):
+        output += (
+            f"{i}. {word} "
+            f"({probability:.4f})\n"
+        )
+
     result_box.configure(
-        text=f"""Prediction
-
-Input:
-{word}
-
-Next Word:
-{predicted}
-
-Confidence:
-{probability:.4f}"""
+        text=output
     )
 
 
+# ----------------------------
+# Sentence Probability
+# ----------------------------
 def sentence_probability():
+
     sentence = get_input()
 
     if sentence is None:
         return
 
-    sentence_tokens = preprocess_text(sentence)
+    tokens = preprocess_text(sentence)
 
     probability = calculate_sentence_probability(
-        sentence_tokens,
+        tokens,
         conditional_probs
     )
 
@@ -131,16 +297,31 @@ Probability:
     )
 
 
-def perplexity():
+# ----------------------------
+# Perplexity
+# ----------------------------
+def perplex():
+
     sentence = get_input()
 
     if sentence is None:
         return
 
-    sentence_tokens = preprocess_text(sentence)
+    tokens = preprocess_text(sentence)
+
+    if len(tokens) < 2:
+        result_box.configure(
+            text=(
+                "Perplexity requires at least "
+                "one word.\n\n"
+                "Example:\n"
+                "machine learning"
+            )
+        )
+        return
 
     value = calculate_perplexity(
-        sentence_tokens,
+        tokens,
         conditional_probs
     )
 
@@ -155,22 +336,44 @@ Perplexity:
     )
 
 
+# ----------------------------
+# Copy Result
+# ----------------------------
 def copy_result():
+
     app.clipboard_clear()
-    app.clipboard_append(result_box.cget("text"))
 
-
-def clear_all():
-    input_box.delete(0, "end")
-
-    result_box.configure(
-        text="Welcome!\n\nChoose an action from the left panel."
+    app.clipboard_append(
+        result_box.cget("text")
     )
 
-# ----------------------------
-# Layout
-# ----------------------------
 
+# ----------------------------
+# Clear
+# ----------------------------
+def clear_all():
+
+    input_box.delete(
+        0,
+        "end"
+    )
+
+    result_box.configure(
+        text=(
+            "Welcome!\n\n"
+            "Choose an action from "
+            "the left panel."
+        )
+    )
+
+
+# ============================================================
+# GUI LAYOUT
+# ============================================================
+
+# ----------------------------
+# Sidebar
+# ----------------------------
 sidebar = ctk.CTkFrame(
     app,
     width=260,
@@ -178,36 +381,104 @@ sidebar = ctk.CTkFrame(
     fg_color="#183153"
 )
 
-sidebar.pack(side="left", fill="y")
+sidebar.pack(
+    side="left",
+    fill="y"
+)
 
+
+# ----------------------------
+# Main Area
+# ----------------------------
 main = ctk.CTkFrame(
     app,
     fg_color="#EEF4FB",
     corner_radius=0
 )
 
-main.pack(side="right", fill="both", expand=True)
+main.pack(
+    side="right",
+    fill="both",
+    expand=True
+)
+
 
 # ----------------------------
-# Sidebar
+# Sidebar Title
 # ----------------------------
-
-title = ctk.CTkLabel(
+ctk.CTkLabel(
     sidebar,
     text="N-Gram\nLanguage Model",
     font=("Helvetica", 26, "bold"),
     text_color="white"
+).pack(
+    pady=(30, 20)
 )
 
-title.pack(pady=(30, 15))
 
+# ----------------------------
+# Corpus Selection
+# ----------------------------
+ctk.CTkLabel(
+    sidebar,
+    text="Select Corpus",
+    text_color="white",
+    font=("Helvetica", 13)
+).pack()
+
+
+corpus_menu = ctk.CTkOptionMenu(
+    sidebar,
+    values=get_corpus_list(),
+    command=load_corpus,
+    width=210,
+    corner_radius=12
+)
+
+corpus_menu.pack(
+    pady=10
+)
+
+
+if get_corpus_list():
+    corpus_menu.set(
+        get_corpus_list()[0]
+    )
+
+
+# ----------------------------
+# Upload Button
+# ----------------------------
+ctk.CTkButton(
+    sidebar,
+    text="Upload Corpus",
+    command=upload_corpus,
+    width=210,
+    height=42,
+    corner_radius=12,
+    fg_color="#16A34A",
+    hover_color="#15803D"
+).pack(
+    pady=8
+)
+
+
+# ----------------------------
+# Input Label
+# ----------------------------
 ctk.CTkLabel(
     sidebar,
     text="Enter a word or sentence",
     text_color="white",
     font=("Helvetica", 13)
-).pack()
+).pack(
+    pady=(18, 5)
+)
 
+
+# ----------------------------
+# Input Box
+# ----------------------------
 input_box = ctk.CTkEntry(
     sidebar,
     width=210,
@@ -216,84 +487,130 @@ input_box = ctk.CTkEntry(
     placeholder_text="Type here..."
 )
 
-input_box.pack(pady=15)
+input_box.pack(
+    pady=10
+)
 
-button_width = 210
-button_height = 42
 
-ctk.CTkButton(
-    sidebar,
-    text="Upload Corpus",
-    command=upload_corpus,
-    width=button_width,
-    height=button_height,
-    corner_radius=12,
-    fg_color="#16A34A",
-    hover_color="#15803D"
-).pack(pady=6)
-
+# ----------------------------
+# Predict Button
+# ----------------------------
 ctk.CTkButton(
     sidebar,
     text="Predict Next Word",
     command=predict,
-    width=button_width,
-    height=button_height,
+    width=210,
+    height=42,
     corner_radius=12
-).pack(pady=6)
+).pack(
+    pady=6
+)
 
+
+# ----------------------------
+# Probability Button
+# ----------------------------
 ctk.CTkButton(
     sidebar,
     text="Sentence Probability",
     command=sentence_probability,
-    width=button_width,
-    height=button_height,
+    width=210,
+    height=42,
     corner_radius=12
-).pack(pady=6)
+).pack(
+    pady=6
+)
 
+
+# ----------------------------
+# Perplexity Button
+# ----------------------------
 ctk.CTkButton(
     sidebar,
     text="Perplexity",
-    command=perplexity,
-    width=button_width,
-    height=button_height,
+    command=perplex,
+    width=210,
+    height=42,
     corner_radius=12
-).pack(pady=6)
+).pack(
+    pady=6
+)
 
+
+# ----------------------------
+# Copy Button
+# ----------------------------
 ctk.CTkButton(
     sidebar,
     text="Copy Result",
     command=copy_result,
-    width=button_width,
-    height=button_height,
+    width=210,
+    height=42,
     corner_radius=12,
     fg_color="#0EA5E9",
     hover_color="#0284C7"
-).pack(pady=6)
+).pack(
+    pady=6
+)
 
+
+# ----------------------------
+# Clear Button
+# ----------------------------
 ctk.CTkButton(
     sidebar,
     text="Clear",
     command=clear_all,
-    width=button_width,
-    height=button_height,
+    width=210,
+    height=42,
     corner_radius=12,
     fg_color="#64748B",
     hover_color="#475569"
-).pack(pady=(15, 0))
+).pack(
+    pady=(15, 0)
+)
+
+
+# ============================================================
+# MAIN AREA
+# ============================================================
 
 # ----------------------------
-# Main Content
+# Corpus Size
 # ----------------------------
-
 corpus_label = ctk.CTkLabel(
     main,
-    text=f"Corpus Size: {len(corpus_tokens)} words",
+    text="Corpus Size: 0 tokens",
     font=("Helvetica", 14, "bold"),
     text_color="#183153"
 )
 
-corpus_label.pack(anchor="ne", padx=20, pady=(20, 5))
+corpus_label.pack(
+    anchor="ne",
+    padx=20,
+    pady=(20, 5)
+)
 
+
+# ----------------------------
+# Vocabulary
+# ----------------------------
+vocab_label = ctk.CTkLabel(
+    main,
+    text="Vocabulary: 0 words",
+    font=("Helvetica", 13),
+    text_color="#183153"
+)
+
+vocab_label.pack(
+    anchor="ne",
+    padx=20
+)
+
+
+# ----------------------------
+# Status
+# ----------------------------
 status = ctk.CTkLabel(
     main,
     text="● Model Ready",
@@ -301,8 +618,16 @@ status = ctk.CTkLabel(
     font=("Helvetica", 13, "bold")
 )
 
-status.pack(anchor="ne", padx=20)
+status.pack(
+    anchor="ne",
+    padx=20,
+    pady=(0, 10)
+)
 
+
+# ----------------------------
+# Result Frame
+# ----------------------------
 result_frame = ctk.CTkFrame(
     main,
     corner_radius=18,
@@ -313,29 +638,72 @@ result_frame.pack(
     fill="both",
     expand=True,
     padx=35,
-    pady=25
+    pady=20
 )
 
+
+# ----------------------------
+# Result Box
+# ----------------------------
 result_box = ctk.CTkLabel(
     result_frame,
-    text="Welcome!\n\nChoose an action from the left panel.",
+    text=(
+        "Welcome!\n\n"
+        "Choose an action from "
+        "the left panel."
+    ),
     justify="left",
     anchor="nw",
     font=("Helvetica", 16),
     text_color="#183153"
 )
 
-result_box.pack(fill="both", expand=True, padx=25, pady=25)
+result_box.pack(
+    fill="both",
+    expand=True,
+    padx=25,
+    pady=25
+)
 
+
+# ----------------------------
+# Footer
+# ----------------------------
 footer = ctk.CTkLabel(
     main,
-    text="Built with Python • CustomTkinter • N-Gram Language Model",
+    text=(
+        "Built with Python • NLTK • "
+        "CustomTkinter • N-Gram Language Model"
+    ),
     text_color="gray",
     font=("Helvetica", 10)
 )
 
-footer.pack(pady=(0, 10))
+footer.pack(
+    pady=(0, 10)
+)
 
-input_box.bind("<Return>", lambda e: predict())
 
+# ============================================================
+# INITIAL CORPUS
+# ============================================================
+
+if get_corpus_list():
+    load_corpus(
+        get_corpus_list()[0]
+    )
+
+
+# ----------------------------
+# Enter = Predict
+# ----------------------------
+input_box.bind(
+    "<Return>",
+    lambda e: predict()
+)
+
+
+# ----------------------------
+# Start Application
+# ----------------------------
 app.mainloop()
